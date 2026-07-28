@@ -305,7 +305,7 @@ const BEATS = [
     path: '/intel',
     canvas: false,
     dwell: 2400,
-    async run({ page, pointer, log }) {
+    async run({ page, pointer, log, markHighlight }) {
       const target = await firstVisible(
         [
           { name: 'role=textbox[name=/target robot/i]', locator: page.getByRole('textbox', { name: /target robot/i }) },
@@ -356,6 +356,9 @@ const BEATS = [
       // Deliberately the longest hold in the cut: this is the Bright Data
       // judging criterion, and the figures need to be legible on first watch.
       log.step('Holding on the provenance panel — the key Bright Data shot.');
+      // Unlock latency varies by tens of seconds, so the GIF cannot be cut at a
+      // fixed offset — the beat marks the moment itself.
+      markHighlight();
       await wait(t(6000));
 
       log.step('Holding on the field-by-field verification diff.');
@@ -552,6 +555,11 @@ async function main() {
 
   const results = [];
   const videoStart = Date.now();
+  /** Seconds into the video that a beat nominated as its best frame. */
+  let highlightAt = null;
+  const markHighlight = () => {
+    highlightAt = (Date.now() - videoStart) / 1000;
+  };
 
   // `DEMO_ONLY=predict,intel` records a subset — the fast way to retime one beat
   // without sitting through the whole walkthrough.
@@ -606,7 +614,7 @@ async function main() {
           }
 
           await wait(t(beat.dwell));
-          await beat.run({ page, pointer, log, baseUrl, t });
+          await beat.run({ page, pointer, log, baseUrl, t, markHighlight });
         })(),
         TIMING.beatBudget * TIMING.speed,
         `Beat "${beat.id}"`,
@@ -651,13 +659,16 @@ async function main() {
     duration = await videoDuration(webm);
     mp4 = await toMp4(webm, path.join(OUTPUT_DIR, 'you-want-more-walkthrough.mp4'), log);
 
-    // The Bright Data beat is the highlight, so that is the README GIF.
-    const highlight = results.find((r) => r.id === 'intel' && r.status === 'ok') ?? results.find((r) => r.status === 'ok');
-    if (highlight) {
+    // Prefer the moment a beat nominated (the Bright Data provenance panel);
+    // otherwise fall back to a little way into the first beat that worked.
+    const fallback = results.find((r) => r.status === 'ok');
+    const start = highlightAt ?? (fallback ? fallback.offset + 6 : null);
+    if (start !== null) {
+      log.info(`Cutting the README GIF from ${start.toFixed(1)} s.`);
       gif = await toGif(
         mp4 ?? webm,
         path.join(OUTPUT_DIR, 'highlight.gif'),
-        { start: Math.max(0, highlight.offset + 6), duration: 6, width: 960 },
+        { start: Math.max(0, start), duration: 6, width: 960 },
         log,
       );
     }

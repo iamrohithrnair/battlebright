@@ -79,8 +79,10 @@ Everything worth retiming is at the top of `scripts/record.mjs`, in two places:
   the array to change the story, or comment an entry out to drop a beat. `path: null` means
   "stay where the previous beat navigated to" (with a `fallbackPath` if it didn't get there).
 
-The current cut runs a little over three minutes with `/insights` missing. Nudge `DEMO_SPEED`
-rather than editing every number if you just want the whole thing slower or faster.
+The current cut runs 3 m 57 s with `/insights` missing; expect roughly 4 m 15 s once that route
+lands. Nudge `DEMO_SPEED` rather than editing every number if you just want the whole thing
+slower or faster. The `/intel` beat is deliberately the longest hold in the cut — it is the
+Bright Data judging criterion, so trim it last.
 
 ## Resilience
 
@@ -109,6 +111,24 @@ Everything lands in `demo/output/`:
 | `highlight.gif` | Short loop of the Bright Data unlock beat, for the README. |
 | `screenshots/NN-<route>.png` | Viewport still per route, plus `-full.png` where the page scrolls. |
 | `run.log`, `shots.log`, `smoke.log` | Full action logs. |
+
+## App-side caveats this harness has hit
+
+These are not harness bugs, but they change what the recording can show:
+
+- **`/insights` does not exist yet** (HTTP 404). The beat is written and will record itself the
+  moment the route lands — nothing here needs changing.
+- **The analyst needs `OPENAI_MODEL` set.** `/analyst` defaults to `gpt-4o-mini`, which the
+  current OpenAI project is not entitled to, so it renders a `403 … does not have access to
+  model` panel instead of an answer. Starting the app with `OPENAI_MODEL=gpt-5.4` makes it
+  work. The commentary module already carries a model-candidate fallback list; the analyst does
+  not. The analyst beat detects this error and marks itself skipped rather than filming it.
+- **`POST /api/commentary/speak` returns 503**, so no audio is synthesised. The captions and
+  grounding panel still render, and the commentary beat advances the transport manually so the
+  caption sync is visible regardless.
+- **The robot picker dropdown on `/predict` paints beneath the following panel**, so its options
+  fail a hit-test click. The harness works around it by dispatching the click directly on the
+  element and logs a warning when it does.
 
 ## Known limitation: the video is silent
 
