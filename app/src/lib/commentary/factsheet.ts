@@ -37,8 +37,12 @@ import type {
   LiveRobotFacts,
 } from './types';
 
-/** A slow unlock must not hold the broadcast. Past this we go engine-only. */
-const UNLOCK_TIMEOUT_MS = 14_000;
+/**
+ * A slow unlock must not hold the broadcast, but the ceiling has to be generous:
+ * measured unlocks of these wiki pages range from ~2 s to ~20 s depending on how
+ * hard the origin is fighting back. Past this we go engine-only.
+ */
+const UNLOCK_TIMEOUT_MS = 26_000;
 
 export class UnknownRobotError extends Error {
   constructor(readonly robot: string) {
@@ -53,6 +57,50 @@ interface LiveResult {
   live: LiveRobotFacts | null;
   provenance: Provenance;
   error: string | null;
+}
+
+/**
+ * Wiki infobox scraping is best-effort by nature: the shared parser sometimes
+ * returns a slab of the page's inline JavaScript or a stray sentence instead of
+ * a value. That is fine for the intel console, which shows raw findings, but
+ * this text may be *spoken*, so anything that doesn't look like a human-written
+ * label is dropped rather than read out.
+ *
+ * Rejecting a good value costs us one nice detail. Accepting a bad one puts
+ * `continent:\`XX\`}}let t=f(\`Geo\`)` in the commentator's mouth on stage.
+ */
+function cleanLiveValue(raw: string | null): string | null {
+  if (!raw) return null;
+  const value = raw.replace(/\s+/g, ' ').trim();
+
+  if (value.length < 2 || value.length > 60) return null;
+  // Code-ish punctuation, quotes, or a sentence fragment rather than a label.
+  if (/[{}`;=<>|\\"]|=>|\blet\b|\bvar\b|\bfunction\b/.test(value)) return null;
+  if (/[.!?]\s|[.!?]$/.test(value)) return null;
+  if (value.split(' ').length > 8) return null;
+  // Must contain real words, not just symbols and digits.
+  if (!/[A-Za-z]{2}/.test(value)) return null;
+
+  return value;
+}
+
+/**
+ * The parser returns season numbers and calendar years mixed together in
+ * discovery order. Sort them into something a caller can read out sensibly.
+ */
+function tidySeasons(seasons: string[]): string[] {
+  const numbers = new Set<number>();
+  const years = new Set<number>();
+  for (const s of seasons) {
+    const n = Number(s);
+    if (!Number.isFinite(n)) continue;
+    if (n >= 1 && n <= 12) numbers.add(n);
+    else if (n >= 2000 && n <= 2030) years.add(n);
+  }
+  return [
+    ...[...numbers].sort((a, b) => a - b).map((n) => `Season ${n}`),
+    ...[...years].sort((a, b) => a - b).map(String),
+  ].slice(0, 10);
 }
 
 /**
@@ -90,11 +138,13 @@ async function fetchLive(robot: string): Promise<LiveResult> {
 
     return {
       live: {
-        builder: scraped.builder,
-        team: scraped.team,
-        country: scraped.country,
+        builder: cleanLiveValue(scraped.builder),
+        team: cleanLiveValue(scraped.team),
+        country: cleanLiveValue(scraped.country),
         weight_lb: scraped.weight_lb,
-        seasons: scraped.seasons,
+        seasons: tidySeasons(scraped.seasons),
+        // The excerpt is prose by construction and is context-only — the caller
+        // is told not to quote figures from it — so it needs no field cleaning.
         excerpt: scraped.excerpt,
         source_url: url,
       },

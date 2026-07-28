@@ -19,18 +19,42 @@ import { SCRIPT_SCHEMA, SYSTEM_PROMPT, buildRepairPrompt, buildUserPrompt } from
 import { BEAT_IDS, type CommentaryBeat, type FactSheet, type ValidationReport } from './types';
 import { allowedValues, checkBeat, normaliseBeats } from './validate';
 
-const DEFAULT_MODEL = 'gpt-4o-mini';
+/**
+ * Tried in order. API keys are often project-scoped to one model family, so
+ * rather than hard-failing on a 403 we walk the list and remember what worked.
+ * `gpt-4o-mini` is the intended model — cheap, fast, and reliable at structured
+ * output — with the gpt-5 family as the fallback for keys scoped to it.
+ */
+const MODEL_CANDIDATES = ['gpt-4o-mini', 'gpt-5.4', 'gpt-5.5', 'gpt-5.6-sol'];
 
 /** Bound on repair round-trips, so a stubborn model cannot stall the demo. */
 const MAX_REPAIRS = 2;
 
 export class CommentaryConfigError extends Error {}
 
+/** Memoised across requests so we pay the discovery cost at most once. */
+let resolvedModel: string | null = null;
+
 /**
  * Deliberately NOT `OPENAI_MODEL`: that variable is shared with the analyst
  * stream, and this route depends on strict structured outputs.
  */
-export const commentaryModel = () => process.env.OPENAI_COMMENTARY_MODEL?.trim() || DEFAULT_MODEL;
+export const commentaryModel = () =>
+  process.env.OPENAI_COMMENTARY_MODEL?.trim() || resolvedModel || MODEL_CANDIDATES[0];
+
+/** A 403/404 on the model name means "this key can't use it", not "we're broken". */
+const isModelAccessError = (e: unknown): boolean => {
+  const status = (e as { status?: number }).status;
+  const message = e instanceof Error ? e.message : '';
+  return (
+    status === 403 ||
+    status === 404 ||
+    /does not (?:have access to|exist)|model_not_found|unsupported_model/i.test(message)
+  );
+};
+
+/** Model families that reject `temperature` and require `max_completion_tokens`. */
+const isReasoningModel = (model: string) => /^(?:o\d|gpt-5)/.test(model);
 
 export interface GenerateResult {
   beats: CommentaryBeat[];
@@ -53,12 +77,17 @@ export async function generateScript(
   }
 
   const client = new OpenAI({ apiKey, maxRetries: 1 });
-  const model = commentaryModel();
   const notes: string[] = [];
 
   let raw: unknown;
+  let model: string;
   try {
-    raw = await callModel(client, model, buildUserPrompt(sheet), signal);
+    const attempt = await callWithFallback(client, buildUserPrompt(sheet), signal);
+    raw = attempt.result;
+    model = attempt.model;
+    if (attempt.skipped.length) {
+      notes.push(`This API key has no access to ${attempt.skipped.join(', ')}; used ${model} instead.`);
+    }
   } catch (e) {
     if (isAbort(e)) throw e;
     return deterministic(sheet, `The language model was unavailable (${describe(e)}), so the script was built deterministically from the fact sheet.`);
@@ -148,6 +177,42 @@ export async function generateScript(
 
 /* ------------------------------------------------------------------- model */
 
+/**
+ * Walk the candidate list until one model is actually reachable with this key,
+ * then remember it. Any error that is *not* about model access aborts the walk —
+ * a rate limit on the first candidate should not silently downgrade the model.
+ */
+async function callWithFallback(
+  client: OpenAI,
+  userPrompt: string,
+  signal?: AbortSignal,
+): Promise<{ result: unknown; model: string; skipped: string[] }> {
+  const preferred = process.env.OPENAI_COMMENTARY_MODEL?.trim();
+  const candidates = preferred
+    ? [preferred, ...MODEL_CANDIDATES.filter((m) => m !== preferred)]
+    : resolvedModel
+      ? [resolvedModel, ...MODEL_CANDIDATES.filter((m) => m !== resolvedModel)]
+      : MODEL_CANDIDATES;
+
+  const skipped: string[] = [];
+  let last: unknown;
+
+  for (const model of candidates) {
+    try {
+      const result = await callModel(client, model, userPrompt, signal);
+      resolvedModel = model;
+      return { result, model, skipped };
+    } catch (e) {
+      if (isAbort(e)) throw e;
+      last = e;
+      if (!isModelAccessError(e)) throw e;
+      skipped.push(model);
+    }
+  }
+
+  throw last ?? new Error('No reachable language model.');
+}
+
 async function callModel(
   client: OpenAI,
   model: string,
@@ -166,10 +231,12 @@ async function callModel(
         type: 'json_schema',
         json_schema: { name: 'commentary_script', strict: true, schema: SCRIPT_SCHEMA },
       },
-      // Enough warmth to sound like a broadcaster, not enough to get creative
-      // with the numbers.
-      temperature: 0.7,
-      max_tokens: 1600,
+      // The reasoning families reject `temperature` and `max_tokens`; the 4o
+      // family needs `max_tokens`. Enough warmth to sound like a broadcaster,
+      // not enough to get creative with the numbers.
+      ...(isReasoningModel(model)
+        ? { max_completion_tokens: 6000 }
+        : { temperature: 0.7, max_tokens: 1600 }),
     },
     { signal },
   );

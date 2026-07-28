@@ -166,6 +166,8 @@ export interface CommentaryErrorBody {
     | 'bad_request'
     | 'unknown_robot'
     | 'no_api_key'
+    /** The key is valid but its project has no entitlement to the model. */
+    | 'no_model_access'
     | 'upstream'
     | 'text_too_long'
     | 'rate_limited';

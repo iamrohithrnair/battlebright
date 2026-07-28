@@ -126,18 +126,7 @@ export async function POST(request: Request) {
 
   try {
     const client = new OpenAI({ apiKey, maxRetries: 1 });
-    const speech = await client.audio.speech.create(
-      {
-        model,
-        voice,
-        input: text,
-        // The delivery-steering parameter. Only supported on the gpt-4o-mini-tts
-        // family — never send it to tts-1, which ignores it.
-        ...(model.startsWith('gpt-4o-mini-tts') ? { instructions } : {}),
-        response_format: RESPONSE_FORMAT,
-      },
-      { signal: request.signal },
-    );
+    const speech = await synthesise(client, model, voice, text, instructions, request.signal);
 
     if (!speech.body) {
       // No stream available: fall back to buffering the whole clip.
@@ -161,9 +150,69 @@ export async function POST(request: Request) {
     if (request.signal.aborted) return new Response(null, { status: 499 });
     const status = (e as { status?: number }).status;
     if (status === 401) return fail('no_api_key', 'The AI provider rejected the API key.', 502);
-    if (status === 429) return fail('rate_limited', 'Voice synthesis is rate-limited. Try again in a moment.', 429);
+    if (status === 429) {
+      return fail('rate_limited', 'Voice synthesis is rate-limited. Try again in a moment.', 429);
+    }
+    if (isModelAccessError(e)) {
+      // A valid key whose project simply has no TTS entitlement. Distinct from a
+      // broken key, and the booth uses this to switch to transcript-only mode.
+      return fail(
+        'no_model_access',
+        'This OpenAI project has no access to a text-to-speech model, so the commentary cannot be spoken. The written transcript is fully available.',
+        503,
+      );
+    }
     return fail('upstream', `Voice synthesis failed: ${describe(e)}`, 502);
   }
+}
+
+const isModelAccessError = (e: unknown): boolean => {
+  const status = (e as { status?: number }).status;
+  const message = e instanceof Error ? e.message : '';
+  return (
+    status === 403 ||
+    status === 404 ||
+    /does not (?:have access to|exist)|model_not_found|unsupported_model/i.test(message)
+  );
+};
+
+/**
+ * `gpt-4o-mini-tts` is the model we want: it is the only family that supports
+ * `instructions`, which is the whole point. `tts-1` is a last resort for keys
+ * scoped without it — it loses per-beat delivery steering, so the voice sounds
+ * flat, but a flat call beats silence.
+ */
+async function synthesise(
+  client: OpenAI,
+  preferred: string,
+  voice: string,
+  input: string,
+  instructions: string,
+  signal: AbortSignal,
+): Promise<Response> {
+  const candidates = preferred === TTS_MODEL ? [TTS_MODEL, 'tts-1'] : [preferred];
+  let last: unknown;
+
+  for (const model of candidates) {
+    try {
+      return await client.audio.speech.create(
+        {
+          model,
+          voice,
+          input,
+          // The delivery-steering parameter. Supported only on the
+          // gpt-4o-mini-tts family — never send it to tts-1.
+          ...(model.startsWith('gpt-4o-mini-tts') ? { instructions } : {}),
+          response_format: RESPONSE_FORMAT,
+        },
+        { signal },
+      );
+    } catch (e) {
+      last = e;
+      if (!isModelAccessError(e)) throw e;
+    }
+  }
+  throw last ?? new Error('No reachable text-to-speech model.');
 }
 
 async function collect(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
