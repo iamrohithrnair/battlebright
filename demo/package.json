@@ -1,0 +1,16 @@
+{
+  "name": "you-want-more-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone Playwright harness that records the 'You Want More?' walkthrough video, captures route screenshots, and smoke-tests every route.",
+  "scripts": {
+    "record": "node scripts/record.mjs",
+    "shots": "node scripts/shots.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "postinstall-browsers": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.56.1"
+  }
+}
