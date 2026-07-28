@@ -3,7 +3,8 @@ import path from 'node:path';
 import { RUN_LOG } from './paths.mjs';
 
 /** Tokens that must never reach the log, the console, or a video frame. */
-const SECRET_KEY_HINT = /(sk-[A-Za-z0-9_-]{8,}|brd_[A-Za-z0-9_-]{6,}|[A-Za-z0-9_-]{32,}\.[A-Za-z0-9_-]{16,})/g;
+const SECRET_KEY_HINT =
+  /(sk-[A-Za-z0-9_-]{8,}|brd_[A-Za-z0-9_-]{6,}|proj_[A-Za-z0-9]{16,}|org-[A-Za-z0-9]{16,}|[A-Za-z0-9_-]{32,}\.[A-Za-z0-9_-]{16,})/g;
 
 /**
  * Anything resembling a credential is masked before it is written anywhere.

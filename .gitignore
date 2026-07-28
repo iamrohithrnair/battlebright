@@ -86,3 +86,15 @@ blob-report/
 Thumbs.db
 *.swp
 .idea/
+
+# ---------------------------------------------------------------------------
+# Demo capture artifacts — git is a bad home for video.
+# demo/ is a separate Node project with its own .gitignore; these root rules
+# are a backstop so captures can never be committed from here.
+# ---------------------------------------------------------------------------
+demo/output/
+**/output/screenshots/
+*.mp4
+*.webm
+*.mov
+*.avi

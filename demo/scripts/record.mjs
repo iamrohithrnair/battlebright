@@ -395,11 +395,25 @@ const BEATS = [
       else await input.press('Enter');
 
       log.step('Waiting for the tool-call trace to appear.');
-      await page
-        .getByText(/predict|simulate|scout|tool/i)
-        .first()
-        .waitFor({ state: 'visible', timeout: 30_000 })
-        .catch(() => log.warn('No tool trace became visible within 30 s.'));
+      const trace = page.locator('[data-demo-trace], pre, code').first();
+      await Promise.race([
+        trace.waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {}),
+        page.getByRole('alert').first().waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {}),
+        wait(30_000),
+      ]);
+
+      // A model/quota error renders as an in-panel message. Filming that for
+      // fifteen seconds tells the story badly, so surface it as a skipped beat
+      // with the reason attached instead.
+      const failure = await page
+        .locator('p')
+        .filter({ hasText: /\b(4\d\d|5\d\d)\b.*(does not have access|quota|unauthor|rate limit)|analyst (offline|connection dropped)/i })
+        .last()
+        .innerText({ timeout: 2500 })
+        .catch(() => null);
+      if (failure) {
+        throw new Error(`The analyst returned an error instead of an answer: ${failure.replace(/\s+/g, ' ').slice(0, 140)}`);
+      }
 
       log.step('Letting the answer stream in.');
       // The Send button re-enables the moment the stream closes.
