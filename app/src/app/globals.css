@@ -1,0 +1,177 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Design system: "Dark Mode (OLED)".
+ * Tokens live in tailwind.config.ts — this file only wires up base element
+ * styling, the z-index scale, and the handful of composite utilities that are
+ * awkward to express as plain class lists.
+ */
+
+@layer base {
+  :root {
+    /* Single z-index scale. Nothing in the app may invent its own value. */
+    --z-base: 10;
+    --z-sticky: 20;
+    --z-nav: 30;
+    --z-overlay: 50;
+  }
+
+  * {
+    @apply border-pit-600;
+  }
+
+  html {
+    @apply bg-pit-950;
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-pit-950 font-sans text-base text-ink antialiased;
+    /* Body text stays >= 16px on mobile per the accessibility bar. */
+    font-feature-settings: 'cv11', 'ss01';
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Numerals line up in every table and stat readout. */
+  .font-mono,
+  .font-display,
+  table,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display font-semibold tracking-tight text-ink;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ember ring-offset-2 ring-offset-pit-950;
+  }
+
+  /* Any interactive element gets a pointer cursor and a consistent transition. */
+  button,
+  [role='button'],
+  a,
+  summary,
+  label[for],
+  select,
+  [tabindex]:not([tabindex='-1']) {
+    @apply cursor-pointer;
+  }
+
+  button:disabled,
+  [aria-disabled='true'] {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  ::selection {
+    @apply bg-ember/30 text-ink;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-pit-950;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full border-2 border-pit-950 bg-pit-600;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-pit-500;
+  }
+}
+
+@layer components {
+  /* Blueprint grid backdrop used behind panels and hero sections. */
+  .bg-blueprint {
+    background-image: linear-gradient(rgba(59, 130, 246, 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59, 130, 246, 0.07) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+
+  /* A denser grid for tight instrument panels. */
+  .bg-blueprint-fine {
+    background-image: linear-gradient(rgba(59, 130, 246, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59, 130, 246, 0.05) 1px, transparent 1px);
+    background-size: 16px 16px;
+  }
+
+  /* Fades a grid out toward the bottom so it never fights with content. */
+  .mask-fade-b {
+    mask-image: linear-gradient(to bottom, black 0%, black 45%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 0%, black 45%, transparent 100%);
+  }
+
+  .mask-fade-r {
+    mask-image: linear-gradient(to right, black 0%, black 70%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black 0%, black 70%, transparent 100%);
+  }
+
+  /* Uppercase tracked-out mono label used for every section heading. */
+  .label-mono {
+    @apply font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-ink-mute;
+  }
+
+  /* Thin hairline divider that reads as an instrument seam. */
+  .hairline {
+    @apply h-px w-full bg-gradient-to-r from-transparent via-pit-600 to-transparent;
+  }
+
+  /* Container used by every page for consistent gutters. */
+  .shell {
+    @apply mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-10;
+  }
+}
+
+@layer utilities {
+  .z-base {
+    z-index: 10;
+  }
+  .z-sticky {
+    z-index: 20;
+  }
+  .z-nav {
+    z-index: 30;
+  }
+  .z-overlay {
+    z-index: 50;
+  }
+
+  /* Prevents the 3D canvases from ever producing a horizontal scrollbar. */
+  .no-scroll-x {
+    overflow-x: clip;
+  }
+}
+
+/**
+ * Reduced motion: kill every decorative animation and freeze scroll smoothing.
+ * The 3D scenes additionally switch to frameloop="never" in JS via
+ * usePrefersReducedMotion(), so this is the DOM half of the same contract.
+ */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
