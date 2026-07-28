@@ -14,7 +14,13 @@ type Block =
   | { kind: 'h'; level: 3 | 4; text: string }
   | { kind: 'ul'; items: string[] }
   | { kind: 'ol'; items: string[] }
-  | { kind: 'code'; lines: string[] };
+  | { kind: 'code'; lines: string[] }
+  | { kind: 'table'; head: string[]; rows: string[][] };
+
+const isTableRow = (line: string) => /^\s*\|.*\|\s*$/.test(line);
+const isTableRule = (line: string) => /^\s*\|[\s:|-]+\|\s*$/.test(line);
+const splitRow = (line: string) =>
+  line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim());
 
 function toBlocks(source: string): Block[] {
   const blocks: Block[] = [];
@@ -39,6 +45,19 @@ function toBlocks(source: string): Block[] {
       }
       i++;
       blocks.push({ kind: 'code', lines: body });
+      continue;
+    }
+
+    // A table needs a header row followed by the |---|---| separator.
+    if (isTableRow(line) && i + 1 < lines.length && isTableRule(lines[i + 1])) {
+      const head = splitRow(line);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && isTableRow(lines[i])) {
+        rows.push(splitRow(lines[i]));
+        i++;
+      }
+      blocks.push({ kind: 'table', head, rows });
       continue;
     }
 
@@ -74,6 +93,7 @@ function toBlocks(source: string): Block[] {
       const next = lines[i];
       if (!next.trim()) break;
       if (/^\s*(?:[-*•]|\d+[.)])\s+/.test(next) || next.trim().startsWith('```') || /^#{1,6}\s/.test(next.trim())) break;
+      if (isTableRow(next)) break;
       paragraph.push(next.trim());
       i++;
     }
@@ -169,6 +189,38 @@ export function Markdown({ text }: { text: string }) {
                   </li>
                 ))}
               </ol>
+            );
+
+          case 'table':
+            return (
+              <div key={key} className="-mx-1 overflow-x-auto px-1">
+                <table className="w-full min-w-[22rem] border-collapse text-left text-[15px]">
+                  <thead>
+                    <tr>
+                      {block.head.map((cell, ci) => (
+                        <th
+                          key={`${key}-h${ci}`}
+                          scope="col"
+                          className="label-mono border-b border-pit-600 px-2.5 py-1.5 align-bottom"
+                        >
+                          {inline(cell, `${key}-h${ci}`)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {block.rows.map((row, ri) => (
+                      <tr key={`${key}-r${ri}`} className="border-b border-pit-700/60 last:border-0">
+                        {row.map((cell, ci) => (
+                          <td key={`${key}-r${ri}c${ci}`} className="px-2.5 py-1.5 align-top text-ink-soft">
+                            {inline(cell, `${key}-r${ri}c${ci}`)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             );
 
           case 'code':

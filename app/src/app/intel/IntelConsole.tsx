@@ -175,7 +175,7 @@ export function IntelConsole({ robots, zone }: { robots: string[]; zone: string 
             {payload.provenance.status === 'fallback' ? (
               <LocalOnlyCard payload={payload} />
             ) : (
-              <ScrapedCard scraped={payload.scraped} />
+              <ScrapedCard scraped={payload.scraped} weights={payload.listed_weights ?? []} />
             )}
           </>
         ) : null}

@@ -113,10 +113,58 @@ function sanitiseScraped(raw: ScrapedRobot): ScrapedRobot {
   };
 }
 
+/* ---------------------------------------------------------------- augmenting */
+
+const textOf = (html: string) =>
+  html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** The value cell of one Fandom infobox row, as plain text. */
+function infoboxRowText(html: string, source: string): string | null {
+  const m = html.match(
+    new RegExp(`data-source="${source}"[\\s\\S]{0,200}?</h3>([\\s\\S]{0,1200}?)</div>`, 'i'),
+  );
+  return m ? textOf(m[1]) : null;
+}
+
+/**
+ * Two honest refinements the generic parser cannot make on its own:
+ *
+ * - Robots change weight class between eras, so the infobox lists several
+ *   figures ("220lbs … 250lbs … 340lbs"). Comparing against only the first one
+ *   would manufacture a mismatch, so collect them all.
+ * - These pages carry no "Builder" row; the team roster names the captain
+ *   instead, which is the same person our dataset records.
+ */
+function listedWeights(html: string, fallback: number | null): number[] {
+  const row = infoboxRowText(html, 'weight');
+  const found = row
+    ? [...row.matchAll(/(\d{2,4})\s*(?:lbs?|pounds)/gi)].map((m) => Number(m[1]))
+    : [];
+  const all = found.length ? found : fallback !== null ? [fallback] : [];
+  return [...new Set(all.filter((w) => w >= 10 && w <= 1000))];
+}
+
+function captainFromRoster(html: string): string | null {
+  const row = infoboxRowText(html, 'team_members');
+  if (!row) return null;
+  const m = row.match(/([A-Z][A-Za-z.'’-]+(?: [A-Z][A-Za-z.'’-]+){0,3})\s*\(\s*Captain\s*\)/);
+  return m ? m[1].trim() : null;
+}
+
 const shown = (v: unknown, suffix = ''): string =>
   v === null || v === undefined || v === '' ? '—' : `${v}${suffix}`;
 
-function buildDiff(local: Robot | null, live: ScrapedRobot): IntelPayload['diff'] {
+function buildDiff(
+  local: Robot | null,
+  live: ScrapedRobot,
+  weights: number[] = live.weight_lb === null ? [] : [live.weight_lb],
+): IntelPayload['diff'] {
   return [
     {
       field: 'weapon_type',
@@ -129,8 +177,8 @@ function buildDiff(local: Robot | null, live: ScrapedRobot): IntelPayload['diff'
     {
       field: 'weight_lb',
       local: shown(local?.weight_lb, ' lb'),
-      live: shown(live.weight_lb, ' lb'),
-      match: Boolean(local && live.weight_lb !== null && local.weight_lb === live.weight_lb),
+      live: weights.length ? `${weights.join(' / ')} lb` : '—',
+      match: Boolean(local && weights.includes(local.weight_lb)),
     },
     {
       field: 'country',
@@ -188,6 +236,7 @@ function fallbackPayload(
     scraped,
     local,
     diff: buildDiff(local, scraped),
+    listed_weights: [],
     provenance,
     message:
       'Live collection is unavailable, so this view is served from the bundled dataset. Nothing is fabricated — the provenance below is marked FALLBACK.',
@@ -230,14 +279,20 @@ export async function GET(
 
   try {
     const { html, provenance } = await unlock(wikiUrl(robot), { fresh });
-    const scraped = parseRobotPage(html, robot);
-    const diff = buildDiff(local, scraped);
+    const parsed = sanitiseScraped(parseRobotPage(html, robot));
+    const weights = listedWeights(html, parsed.weight_lb);
+    const scraped: ScrapedRobot = {
+      ...parsed,
+      builder: parsed.builder ?? captainFromRoster(html),
+    };
+    const diff = buildDiff(local, scraped, weights);
     const verified = diff.filter((d) => d.match).length;
 
     const payload: IntelPayload = {
       scraped,
       local,
       diff,
+      listed_weights: weights,
       provenance,
       message:
         provenance.status === 'cached'

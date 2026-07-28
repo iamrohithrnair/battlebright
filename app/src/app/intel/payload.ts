@@ -9,6 +9,8 @@ import type { IntelResult } from '@/lib/types';
 export interface IntelPayload extends IntelResult {
   /** One sentence describing where this payload came from. */
   message: string;
+  /** Every weight the page lists — robots change class between eras. */
+  listed_weights: number[];
   /** Present only when the live unlock could not be completed. */
   error?: { code: string; message: string };
 }

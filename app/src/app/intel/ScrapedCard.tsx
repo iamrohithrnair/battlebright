@@ -12,7 +12,13 @@ const weaponInfo = (type: string | null) =>
   type && type in WEAPON_INFO ? WEAPON_INFO[type as WeaponType] : null;
 
 /** Everything the dependency-free parser pulled out of the unlocked HTML. */
-export function ScrapedCard({ scraped }: { scraped: ScrapedRobot }) {
+export function ScrapedCard({
+  scraped,
+  weights,
+}: {
+  scraped: ScrapedRobot;
+  weights: number[];
+}) {
   const weapon = weaponInfo(scraped.weapon_type);
 
   return (
@@ -38,8 +44,16 @@ export function ScrapedCard({ scraped }: { scraped: ScrapedRobot }) {
               )}
             </Field>
 
-            <Field label="Weight">
-              <Raw value={scraped.weight_lb === null ? null : `${scraped.weight_lb} lb`} />
+            <Field label={weights.length > 1 ? 'Weights listed' : 'Weight'}>
+              <Raw
+                value={
+                  weights.length
+                    ? `${weights.join(' / ')} lb`
+                    : scraped.weight_lb === null
+                      ? null
+                      : `${scraped.weight_lb} lb`
+                }
+              />
             </Field>
             <Field label="Country">
               <Raw value={scraped.country} />
