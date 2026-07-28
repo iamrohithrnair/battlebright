@@ -30,8 +30,6 @@ const MODEL_CANDIDATES = ['gpt-4o-mini', 'gpt-5.4', 'gpt-5.5', 'gpt-5.6-sol'];
 /** Bound on repair round-trips, so a stubborn model cannot stall the demo. */
 const MAX_REPAIRS = 2;
 
-export class CommentaryConfigError extends Error {}
-
 /** Memoised across requests so we pay the discovery cost at most once. */
 let resolvedModel: string | null = null;
 

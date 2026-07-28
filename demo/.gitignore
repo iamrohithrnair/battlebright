@@ -1,0 +1,7 @@
+# This harness is standalone: its dependencies and its rendered artefacts are
+# both reproducible from the scripts, so neither belongs in the repository.
+node_modules/
+output/
+videos/
+test-results/
+playwright-report/

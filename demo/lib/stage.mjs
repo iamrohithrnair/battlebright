@@ -126,33 +126,90 @@ export function createPointer(page, start = { x: VIEWPORT.width / 2, y: VIEWPORT
   };
 }
 
-/** Moves to an element, highlights it, pauses, then clicks it. */
-export async function showAndClick(locator, pointer, { settle = 620, hold = 260 } = {}) {
-  await locator.waitFor({ state: 'visible', timeout: 15_000 });
-  await locator.scrollIntoViewIfNeeded();
-  await wait(180);
+/**
+ * Brings an element somewhere clickable and reports what, if anything, still
+ * covers its centre. Sticky headers are the usual culprit: scrolling a control
+ * into view can tuck it straight underneath one.
+ */
+async function positionForClick(locator, page) {
+  const viewport = page.viewportSize() ?? VIEWPORT;
 
-  const box = await locator.boundingBox();
+  let box = await locator.boundingBox();
+  const tooHigh = box && box.y < 140;
+  const tooLow = box && box.y + box.height > viewport.height - 90;
+  if (!box || tooHigh || tooLow) {
+    // Centring dodges both the sticky nav at the top and anything docked below.
+    await locator.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
+    await wait(350);
+    box = await locator.boundingBox();
+  }
   if (!box) throw new Error('Element has no bounding box, so it cannot be clicked.');
 
-  await locator.evaluate((el) => el.classList.add('__demo_focus__'));
+  const obstruction = await locator.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    if (!hit || hit === el || el.contains(hit) || hit.contains(el)) return null;
+    const hitRect = hit.getBoundingClientRect();
+    return { tag: hit.tagName.toLowerCase(), bottom: hitRect.bottom, top: hitRect.top };
+  });
+
+  if (obstruction) {
+    // Nudge the page so the element clears whatever is sitting on top of it.
+    const shift = obstruction.bottom - box.y + 16;
+    await page.evaluate((dy) => window.scrollBy(0, -dy), shift);
+    await wait(350);
+    box = await locator.boundingBox();
+    if (!box) throw new Error('Element left the layout while clearing an obstruction.');
+  }
+
+  return { box, obstruction };
+}
+
+/** Moves to an element, highlights it, pauses, then clicks it. */
+export async function showAndClick(locator, pointer, { settle = 620, hold = 260, log } = {}) {
+  await locator.waitFor({ state: 'visible', timeout: 15_000 });
+  const page = locator.page();
+  const { box, obstruction } = await positionForClick(locator, page);
+
+  await locator
+    .evaluate((el) => el.classList.add('__demo_focus__'), undefined, { timeout: 1500 })
+    .catch(() => {});
   await pointer.moveTo(box.x + box.width / 2, box.y + box.height / 2);
   await wait(hold);
-  await locator.click({ timeout: 10_000 });
+
+  try {
+    // Kept short on purpose: a few app panels paint over an open dropdown, and
+    // the direct-dispatch fallback below is a better use of those seconds than
+    // waiting out a hit-test that will never pass.
+    await locator.click({ timeout: 4000 });
+  } catch (error) {
+    // Last resort: dispatch the click on the element itself. It bypasses hit
+    // testing, so a stubborn overlay cannot block the beat — the cursor is
+    // already parked on the control, so the recording still reads correctly.
+    log?.warn(
+      `Hit-tested click failed${obstruction ? ` (a <${obstruction.tag}> was over it)` : ''}; ` +
+        'dispatching the click directly on the element.',
+    );
+    await locator.evaluate((el) => el.click());
+  }
+
   await wait(140);
+  // Most controls here unmount or rename themselves when clicked (Simulate
+  // becomes Fighting, a card navigates away), so this cleanup must be given a
+  // short leash rather than the context default — otherwise every click pays
+  // a full auto-waiting timeout for an element that no longer exists.
   await locator
-    .evaluate((el) => el.classList.remove('__demo_focus__'))
-    .catch(() => {}); // The element may have unmounted as a result of the click.
+    .evaluate((el) => el.classList.remove('__demo_focus__'), undefined, { timeout: 1200 })
+    .catch(() => {});
   await wait(settle);
 }
 
 /** Types one character at a time so the viewer can read the query forming. */
 export async function humanType(locator, text, pointer, { delay = 95, settle = 700 } = {}) {
   await locator.waitFor({ state: 'visible', timeout: 15_000 });
-  await locator.scrollIntoViewIfNeeded();
-  const box = await locator.boundingBox();
-  if (box) await pointer.moveTo(box.x + Math.min(box.width - 12, 60), box.y + box.height / 2);
-  await locator.click({ timeout: 10_000 });
+  const { box } = await positionForClick(locator, locator.page());
+  await pointer.moveTo(box.x + Math.min(box.width - 12, 60), box.y + box.height / 2);
+  await locator.click({ timeout: 10_000 }).catch(() => locator.focus());
   await wait(240);
   await locator.fill('');
   await locator.pressSequentially(text, { delay });
@@ -165,16 +222,23 @@ export async function humanType(locator, text, pointer, { delay = 95, settle = 7
  */
 export async function smoothScroll(
   page,
-  { to = 'bottom', steps = 24, stepDelay = 210, target = null } = {},
+  { to = 'bottom', steps = 24, stepDelay = 210, target = null, clearFooter = false } = {},
 ) {
-  const metrics = await page.evaluate(() => ({
-    top: window.scrollY,
-    max: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
-  }));
+  const metrics = await page.evaluate(() => {
+    const footer = document.querySelector('footer');
+    return {
+      top: window.scrollY,
+      max: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
+      footerHeight: footer ? footer.getBoundingClientRect().height : 0,
+    };
+  });
 
   let destination;
   if (typeof to === 'number') destination = to;
   else if (to === 'top') destination = 0;
+  // Scrolling to the true bottom parks the shot on the site footer, which is
+  // the least interesting thing on any of these pages.
+  else if (clearFooter) destination = Math.max(0, metrics.max - metrics.footerHeight);
   else destination = metrics.max;
 
   if (target) {

@@ -143,12 +143,14 @@ export function CommentaryDeck({
           <div className="space-y-3 border-t border-pit-700 pt-4">
             <TransportBar engine={engine} />
 
-            <div className="flex items-center gap-3">
+            {/* Stacks on mobile: the toggle's label is too wide to sit beside the
+                meter at 375px. */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <Visualiser
                 analyser={analyser}
                 active={isPlaying && !textMode}
                 hot={hot}
-                className="flex-1"
+                className="min-w-0 flex-1"
               />
               <button
                 type="button"
@@ -156,7 +158,7 @@ export function CommentaryDeck({
                 aria-pressed={transcriptOnly}
                 disabled={!voiceStatus.available}
                 className={cn(
-                  'inline-flex min-h-[44px] shrink-0 cursor-pointer items-center gap-2 border px-3 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors duration-200',
+                  'inline-flex min-h-[44px] shrink-0 cursor-pointer items-center justify-center gap-2 border px-3 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors duration-200',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember focus-visible:ring-offset-2 focus-visible:ring-offset-pit-950',
                   transcriptOnly
                     ? 'border-volt/50 bg-volt/10 text-volt-light'

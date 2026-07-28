@@ -66,6 +66,14 @@ export function useCommentary({ robotA, robotB, autoStart = false }: UseCommenta
   const speakAbortsRef = useRef<Set<AbortController>>(new Set());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rafRef = useRef<number | null>(null);
+  /**
+   * Playback epoch. `playFrom` is async and can be suspended mid-flight (waiting
+   * on synthesis, or on a beat-boundary timeout). Any control action bumps this,
+   * which invalidates every in-flight run — without it, pressing pause exactly
+   * as a beat ends lets the superseded run schedule a fresh timer that nothing
+   * owns, and playback creeps forward while the UI says paused.
+   */
+  const epochRef = useRef(0);
   /** Text-mode progress bookkeeping. */
   const textStartRef = useRef<number>(0);
   const scriptRef = useRef<CommentaryScript | null>(null);
@@ -231,6 +239,8 @@ export function useCommentary({ robotA, robotB, autoStart = false }: UseCommenta
   /* --------------------------------------------------------------- playback */
 
   const stopPlayback = useCallback(() => {
+    // Invalidate any in-flight playFrom before tearing down its timers.
+    epochRef.current++;
     clearTimer();
     const audio = audioRef.current;
     if (audio) {
@@ -241,20 +251,22 @@ export function useCommentary({ robotA, robotB, autoStart = false }: UseCommenta
 
   /** Text-mode: advance on a timer and drive the progress bar with rAF. */
   const runTextBeat = useCallback(
-    (index: number, onDone: () => void) => {
+    (index: number, isCurrent: () => boolean, onDone: () => void) => {
       const beat = scriptRef.current?.beats[index];
-      if (!beat) return;
+      if (!beat || !isCurrent()) return;
       textStartRef.current = Date.now();
       const duration = beat.duration_hint_ms;
 
       const tick = () => {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || !isCurrent()) return;
         const elapsed = Date.now() - textStartRef.current;
         setBeatProgress(Math.min(1, elapsed / duration));
         if (elapsed < duration) rafRef.current = requestAnimationFrame(tick);
       };
       rafRef.current = requestAnimationFrame(tick);
-      timerRef.current = setTimeout(onDone, duration);
+      timerRef.current = setTimeout(() => {
+        if (isCurrent()) onDone();
+      }, duration);
     },
     [],
   );
@@ -272,6 +284,10 @@ export function useCommentary({ robotA, robotB, autoStart = false }: UseCommenta
       }
 
       clearTimer();
+      // Claim this epoch; any control action from here on supersedes us.
+      const epoch = ++epochRef.current;
+      const isCurrent = () => mountedRef.current && epochRef.current === epoch;
+
       setActiveIndex(index);
       setBeatProgress(0);
       setPhase('playing');
@@ -279,22 +295,22 @@ export function useCommentary({ robotA, robotB, autoStart = false }: UseCommenta
       setAnnouncement(`Beat ${index + 1} of ${current.beats.length}: ${beat.label}`);
 
       const advance = () => {
-        if (mountedRef.current) void playFrom(index + 1);
+        if (isCurrent()) void playFrom(index + 1);
       };
 
       if (transcriptOnly || !voiceStatus.available) {
-        runTextBeat(index, advance);
+        runTextBeat(index, isCurrent, advance);
         return;
       }
 
       const audio = ensureAudio();
       const url = await synthesise(index);
-      if (!mountedRef.current || activeRef.current !== index) return;
+      if (!isCurrent()) return;
 
       if (!url) {
         // Per-beat synthesis failure: read this beat as text and carry on rather
         // than stranding the audience on a broken beat.
-        runTextBeat(index, advance);
+        runTextBeat(index, isCurrent, advance);
         return;
       }
 
@@ -303,7 +319,12 @@ export function useCommentary({ robotA, robotB, autoStart = false }: UseCommenta
         await audio.play();
       } catch {
         // Autoplay blocked or decode failure — degrade to the timed transcript.
-        if (mountedRef.current && activeRef.current === index) runTextBeat(index, advance);
+        if (isCurrent()) runTextBeat(index, isCurrent, advance);
+        return;
+      }
+      if (!isCurrent()) {
+        // Superseded while the play() promise settled.
+        audio.pause();
         return;
       }
 
@@ -397,6 +418,7 @@ export function useCommentary({ robotA, robotB, autoStart = false }: UseCommenta
   /* ---------------------------------------------------------------- controls */
 
   const pause = useCallback(() => {
+    epochRef.current++;
     clearTimer();
     audioRef.current?.pause();
     setPhase('paused');

@@ -81,7 +81,7 @@ export function HoldToTalk({ onTranscript, disabled = false, className }: HoldTo
       setSupport('browser');
     } else if (
       typeof window.MediaRecorder !== 'undefined' &&
-      navigator.mediaDevices?.getUserMedia
+      typeof navigator.mediaDevices?.getUserMedia === 'function'
     ) {
       setSupport('server');
     } else {

@@ -18,7 +18,7 @@
  */
 import { BrightDataError, parseRobotPage, unlock, wikiUrl, zoneName } from '@/lib/brightdata';
 import { WEAPON_INFO } from '@/lib/data/roster';
-import { koRate, leaderboard, predict, robotDetail, simulate, weaponEdge, WEIGHTS, winRate } from '@/lib/engine';
+import { predict, robotDetail, simulate, weaponEdge, WEIGHTS } from '@/lib/engine';
 import type { Provenance } from '@/lib/types';
 
 import {
@@ -487,11 +487,3 @@ export async function buildFactSheet(
     build_ms: Date.now() - started,
   };
 }
-
-/** Sanity guard used by the route before doing any expensive work. */
-export function knownRobot(name: string): boolean {
-  return robotDetail(name) !== null;
-}
-
-/** Re-exported so the route can report the leaderboard context cheaply. */
-export { leaderboard, winRate, koRate };

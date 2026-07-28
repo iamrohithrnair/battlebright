@@ -41,9 +41,10 @@ export function VoiceSelect({ value, onChange, disabled = false, className }: Vo
           disabled && 'cursor-not-allowed opacity-60',
         )}
       >
+        {/* Name only: the blurb is shown beneath, and long option text truncates. */}
         {VOICES.map((v) => (
           <option key={v.id} value={v.id}>
-            {v.name} — {v.blurb}
+            {v.name}
           </option>
         ))}
       </select>
