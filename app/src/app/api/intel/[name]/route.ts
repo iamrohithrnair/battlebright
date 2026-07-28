@@ -150,6 +150,23 @@ function listedWeights(html: string, fallback: number | null): number[] {
   return [...new Set(all.filter((w) => w >= 10 && w <= 1000))];
 }
 
+/**
+ * Prefer the article's actual opening sentence ("X is a heavyweight robot built
+ * by …") over the first long paragraph, which on these pages is often infobox
+ * spill rather than prose.
+ */
+function ledeParagraph(html: string, robot: string): string | null {
+  const head = robot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const opener = new RegExp(`^${head}\\b[^.]{0,80}?\\b(?:is|was|are|were)\\s+(?:a|an|the)\\b`, 'i');
+
+  for (const m of html.matchAll(/<p>([\s\S]{60,2000}?)<\/p>/gi)) {
+    const text = textOf(m[1]).replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)));
+    if (text.length < 80 || !opener.test(text)) continue;
+    return text.length > 420 ? `${text.slice(0, 417)}...` : text;
+  }
+  return null;
+}
+
 function captainFromRoster(html: string): string | null {
   const row = infoboxRowText(html, 'team_members');
   if (!row) return null;
@@ -284,6 +301,7 @@ export async function GET(
     const scraped: ScrapedRobot = {
       ...parsed,
       builder: parsed.builder ?? captainFromRoster(html),
+      excerpt: ledeParagraph(html, robot) ?? parsed.excerpt,
     };
     const diff = buildDiff(local, scraped, weights);
     const verified = diff.filter((d) => d.match).length;

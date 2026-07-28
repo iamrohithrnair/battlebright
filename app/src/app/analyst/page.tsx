@@ -11,7 +11,8 @@ import { rosterStats } from '@/lib/engine';
 import { AnalystChat } from './AnalystChat';
 
 export const metadata: Metadata = {
-  title: 'Analyst — You Want More?',
+  // The root layout appends " — You Want More?" via its title template.
+  title: 'Analyst',
   description:
     'A tool-using AI analyst for BattleBots. Every number is grounded in the prediction engine, with live wiki collection through Bright Data.',
 };
